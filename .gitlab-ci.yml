@@ -1,0 +1,38 @@
+image: passp-dev-rc1.msk.mts.ru:5005/external-websso/dockers/maven-custom:3-jdk-8
+
+variables:
+  GIT_SSL_NO_VERIFY: "1"
+  MAVEN_OPTS: ""
+  MAVEN_CLI_OPTS: "--batch-mode --errors --fail-at-end --show-version -DinstallAtEnd=true -DdeployAtEnd=true"
+
+build:
+  stage: build
+  script:
+    - mvn $MAVEN_CLI_OPTS -DskipTests clean install
+  artifacts:
+    paths:
+      - "*/target"
+      - "*/*/target"
+
+test:
+  stage: test
+  script:
+    - mvn $MAVEN_CLI_OPTS test
+  allow_failure: true
+
+deploy:
+  stage: deploy
+  dependencies:
+    - build
+  script:
+    - mvn $MAVEN_CLI_OPTS -DskipTests deploy
+
+deploy:tag:
+  stage: deploy
+  dependencies:
+    - build
+  only:
+    - tags
+  script:
+    - mvn $MAVEN_CLI_OPTS -DskipTests deploy
+
