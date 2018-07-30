@@ -3,7 +3,7 @@ image: passp-dev-rc1.msk.mts.ru:5005/external-websso/dockers/maven-custom:3-jdk-
 variables:
   GIT_SSL_NO_VERIFY: "1"
   MAVEN_OPTS: ""
-  MAVEN_CLI_OPTS: "--batch-mode --errors --fail-at-end --show-version -DinstallAtEnd=true -DdeployAtEnd=true"
+  MAVEN_CLI_OPTS: "--batch-mode --errors --fail-at-end --show-version"
 
 build:
   stage: build
@@ -24,15 +24,6 @@ deploy:
   stage: deploy
   dependencies:
     - build
-  script:
-    - mvn $MAVEN_CLI_OPTS -DskipTests deploy
-
-deploy:tag:
-  stage: deploy
-  dependencies:
-    - build
-  only:
-    - tags
   script:
     - mvn $MAVEN_CLI_OPTS -DskipTests deploy
 
