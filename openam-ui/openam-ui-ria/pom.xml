@@ -19,7 +19,7 @@
     <parent>
         <groupId>org.forgerock.openam</groupId>
         <artifactId>openam-ui</artifactId>
-        <version>14.1.7-SNAPSHOT</version>
+        <version>14.1.9-SNAPSHOT</version>
     </parent>
 
     <artifactId>openam-ui-ria</artifactId>
@@ -79,8 +79,8 @@
         </dependency>
         <dependency>
             <groupId>org.forgerock.commons.ui.libs</groupId>
-            <artifactId>jquery-nestingSortable</artifactId>
-            <version>0.9.12</version>
+            <artifactId>jquery-sortable</artifactId>
+            <version>0.9.13</version>
             <type>js</type>
         </dependency>
         <dependency>
