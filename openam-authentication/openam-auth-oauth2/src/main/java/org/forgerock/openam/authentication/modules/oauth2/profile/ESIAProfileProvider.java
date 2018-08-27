@@ -170,6 +170,23 @@ public class ESIAProfileProvider implements ProfileProvider {
 			if(docsStr != null)
 				try {
 					JSONObject docs = new JSONObject(docsStr);
+
+					//make docs flat
+					JSONArray docsArray =  docs.getJSONArray("elements");
+					
+					for(int i = 0; i < docsArray.length(); i++) {
+						JSONObject doc = docsArray.getJSONObject(i);
+						String docNum = String.valueOf(i);
+						profile.put("doc_id_".concat(docNum), getDefault(doc, "id", ""));
+						profile.put("doc_type_".concat(docNum), getDefault(doc, "type", ""));
+						profile.put("doc_vrfStu_".concat(docNum), getDefault(doc, "vrfStu", ""));
+						profile.put("doc_series_".concat(docNum), getDefault(doc, "series", ""));
+						profile.put("doc_number_".concat(docNum), getDefault(doc, "number", ""));
+						profile.put("doc_issueDate_".concat(docNum), getDefault(doc, "issueDate", ""));
+						profile.put("doc_issueId_".concat(docNum), getDefault(doc, "issueId", ""));
+						profile.put("doc_issuedBy_".concat(docNum), getDefault(doc, "issuedBy", ""));
+					}
+					
 					profile.put("docs", docs);
 				} catch (JSONException e) {
 					logger.warn("error embed docs profile: {}", docsStr, e.toString());
@@ -206,6 +223,15 @@ public class ESIAProfileProvider implements ProfileProvider {
 		}
 		
 		return profileStr;
+	}
+	
+	private static Object getDefault(JSONObject obj, String field, Object defaultVal) {
+		if(obj.has(field))
+			try {
+				return obj.get(field);
+			} catch(JSONException e) {}
+		return defaultVal;
+			
 	}
 
 }

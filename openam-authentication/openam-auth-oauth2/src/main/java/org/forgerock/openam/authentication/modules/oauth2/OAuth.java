@@ -26,30 +26,15 @@
  */
 package org.forgerock.openam.authentication.modules.oauth2;
 
-import static org.forgerock.openam.authentication.modules.oauth2.OAuthParam.BUNDLE_NAME;
-import static org.forgerock.openam.authentication.modules.oauth2.OAuthParam.COOKIE_LOGOUT_URL;
-import static org.forgerock.openam.authentication.modules.oauth2.OAuthParam.COOKIE_ORIG_URL;
-import static org.forgerock.openam.authentication.modules.oauth2.OAuthParam.COOKIE_PROXY_URL;
-import static org.forgerock.openam.authentication.modules.oauth2.OAuthParam.CREATE_USER_STATE;
-import static org.forgerock.openam.authentication.modules.oauth2.OAuthParam.GET_OAUTH_TOKEN_STATE;
-import static org.forgerock.openam.authentication.modules.oauth2.OAuthParam.ID_TOKEN;
-import static org.forgerock.openam.authentication.modules.oauth2.OAuthParam.NONCE_TOKEN_ID;
-import static org.forgerock.openam.authentication.modules.oauth2.OAuthParam.PARAM_ACCESS_TOKEN;
-import static org.forgerock.openam.authentication.modules.oauth2.OAuthParam.PARAM_ACTIVATION;
-import static org.forgerock.openam.authentication.modules.oauth2.OAuthParam.PARAM_CODE;
-import static org.forgerock.openam.authentication.modules.oauth2.OAuthParam.PARAM_TOKEN1;
-import static org.forgerock.openam.authentication.modules.oauth2.OAuthParam.PARAM_TOKEN2;
-import static org.forgerock.openam.authentication.modules.oauth2.OAuthParam.SESSION_LOGOUT_BEHAVIOUR;
-import static org.forgerock.openam.authentication.modules.oauth2.OAuthParam.SESSION_OAUTH_TOKEN;
-import static org.forgerock.openam.authentication.modules.oauth2.OAuthParam.SET_PASSWORD_STATE;
+import static org.forgerock.openam.authentication.modules.oauth2.OAuthParam.*;
 import static org.forgerock.openam.utils.Time.currentTimeMillis;
 
 import java.lang.reflect.InvocationTargetException;
-import java.math.BigInteger;
 import java.security.Principal;
 import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.Calendar;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
@@ -85,11 +70,15 @@ import org.forgerock.openam.xui.XUIState;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.owasp.esapi.ESAPI;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.iplanet.am.util.SystemProperties;
+import com.iplanet.dpro.session.service.InternalSession;
 import com.iplanet.sso.SSOException;
 import com.sun.identity.authentication.client.AuthClientUtils;
 import com.sun.identity.authentication.service.AuthUtils;
+import com.sun.identity.authentication.service.LoginState;
 import com.sun.identity.authentication.spi.AMLoginModule;
 import com.sun.identity.authentication.spi.AuthLoginException;
 import com.sun.identity.authentication.spi.RedirectCallback;
@@ -101,10 +90,12 @@ import com.sun.identity.shared.encode.Base64;
 import com.sun.identity.shared.encode.CookieUtils;
 import com.sun.identity.shared.encode.URLEncDec;
 
+
 public class OAuth extends AMLoginModule {
 
     public static final String PROFILE_SERVICE_RESPONSE = "ATTRIBUTES";
     public static final String OPENID_TOKEN = "OPENID_TOKEN";
+    public static final String REFRESH_TOKEN_ATTRIBUTE_CUSTOM_PROPERTY = "[refresh_token_attribute]";
     private static Debug DEBUG = Debug.getInstance("amAuthOAuth2");
     private String authenticatedUser = null;
     private Map sharedState;
@@ -117,6 +108,7 @@ public class OAuth extends AMLoginModule {
     String userPassword = "";
     String proxyURL = "";
     private final CTSPersistentStore ctsStore;
+    private String refreshToken = null;
 
     /* default idle time for invalid sessions */
     private static final long maxDefaultIdleTime =
@@ -134,9 +126,27 @@ public class OAuth extends AMLoginModule {
         bundle = amCache.getResBundle(BUNDLE_NAME, getLoginLocale());
         setAuthLevel(this.config.getAuthnLevel());    
     }
-
     
+    //FIX: allow ForceAuth over change org
+    public static Logger logger=LoggerFactory.getLogger(OAuth.class);
     public int process(Callback[] callbacks, int state) throws LoginException {
+    	int res=process2(callbacks,state);
+    	if (res==ISAuthConstants.LOGIN_SUCCEED) {
+    		//allow user change
+            LoginState ls=getLoginState(this.getClass().getName());
+            InternalSession oldSession=ls.getOldSession();
+            if (oldSession!=null&&!authenticatedUser.equalsIgnoreCase(oldSession.getProperty(ISAuthConstants.PRINCIPAL))){
+            	ls.setForceAuth(false);
+            	ls.setSessionUpgrade(false);
+            	logger.info("upgrade user from {} to {}",new Object[]{oldSession.getProperty(ISAuthConstants.PRINCIPAL),authenticatedUser});
+            	setUserSessionProperty("am.protected.old.".concat(ISAuthConstants.PRINCIPAL), oldSession.getProperty(ISAuthConstants.PRINCIPAL));
+            	oldSession.putProperty(ISAuthConstants.PRINCIPAL, authenticatedUser);
+            }
+    	}
+    	return res;
+    }
+    
+    public int process2(Callback[] callbacks, int state) throws LoginException {
 
         OAuthUtil.debugMessage("process: state = " + state);
         HttpServletRequest request = getHttpServletRequest();
@@ -245,7 +255,7 @@ public class OAuth extends AMLoginModule {
 
                 setUserSessionProperty(SESSION_LOGOUT_BEHAVIOUR,
                         config.getLogoutBhaviour());
-
+                
                 String authServiceUrl = config.getAuthServiceUrl(proxyURL, csrfState);
                 OAuthUtil.debugMessage("OAuth.process(): New RedirectURL=" + authServiceUrl);
 
@@ -299,7 +309,7 @@ public class OAuth extends AMLoginModule {
 
                     JwtClaimsSet jwtClaims = null;
                     String idToken = null;
-                    if (config.isOpenIDConnect()) {
+                    if (config.isOpenIDConnect() && StringUtils.isNotEmpty(jwtHandlerConfig.getConfiguredIssuer())) { //obtained jwt and jwt validator configured
                         idToken = extractToken(ID_TOKEN, tokenSvcResponse);
                         JwtHandler jwtHandler = new JwtHandler(jwtHandlerConfig);
                         try {
@@ -315,8 +325,12 @@ public class OAuth extends AMLoginModule {
                     }
 
                     String token = extractToken(PARAM_ACCESS_TOKEN, tokenSvcResponse);
+                    
+                    refreshToken = extractToken(PARAM_REFRESH_TOKEN, tokenSvcResponse);
 
                     setUserSessionProperty(SESSION_OAUTH_TOKEN, token);
+                    
+                    setUserSessionProperty(SESSION_OAUTH_SCOPE, config.getScope());
 
                     String profileSvcResponse = null;
                     if (StringUtils.isNotEmpty(config.getProfileServiceUrl())) {
@@ -567,6 +581,11 @@ public class OAuth extends AMLoginModule {
                 OAuthUtil.debugError("OAuth.getUser: Problem when trying to get the Attribute Mapper", ex);
             }
         }
+        
+        if(config.getCustomProperties().containsKey(REFRESH_TOKEN_ATTRIBUTE_CUSTOM_PROPERTY) && StringUtils.isNotBlank(refreshToken)) {
+        	attributes.put(config.getCustomProperties().get(REFRESH_TOKEN_ATTRIBUTE_CUSTOM_PROPERTY), Collections.singleton(refreshToken));
+        }
+        
         OAuthUtil.debugMessage("OAuth.getUser: creating new user; attributes = " + attributes);
         return attributes;
     }
