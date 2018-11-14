@@ -23,7 +23,9 @@ test:
 test-sonar:
   stage: test
   script:
+    - mvn $MAVEN_CLI_OPTS -DskipTests install
     - mvn $MAVEN_CLI_OPTS sonar:sonar -Dsonar.host.url=$WEBSSO_SONAR_URL -Dsonar.login=$WEBSSO_SONAR_TOKEN -Dsonar.gitlab.commit_sha=$(git log --pretty=format:%H origin/master..$CI_COMMIT_SHA | tr '\n' ',') -Dsonar.gitlab.ref_name=$CI_COMMIT_REF_NAME -Dsonar.gitlab.project_id=$CI_PROJECT_ID -Dsonar.gitlab.unique_issue_per_inline=true
+  allow_failure: true
 
 deploy:
   stage: deploy
